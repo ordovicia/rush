@@ -1,4 +1,8 @@
+use std::str;
+use std::str::FromStr;
+
 use nom::{self, multispace};
+
 use super::{Result, Error};
 use job::{Job, JobMode, Process, OutputRedirection, WriteMode};
 
@@ -62,12 +66,12 @@ named!(process2<&[u8], Process>,
            })
        ));
 
-named!(command<Vec<&'a [u8]> >, ws!(many1!(token)));
+named!(command<Vec<String> >, ws!(many1!(token_str)));
 
-named!(redirect_in,
+named!(redirect_in<String>,
        ws!(do_parse!(
                tag_s!("<") >>
-               filename: token >>
+               filename: token_str >>
                (filename)
           )
        ));
@@ -76,28 +80,42 @@ named!(redirect_out<OutputRedirection>,
 named!(redirect_out_trunc<OutputRedirection>,
        ws!(do_parse!(
                tag_s!(">") >>
-               filename: token >>
-               (OutputRedirection { filename, mode: WriteMode::Truncate } )
+               filename: token_str >>
+               (OutputRedirection {
+                   filename,
+                   mode: WriteMode::Truncate
+               } )
           )
        ));
 named!(redirect_out_append<OutputRedirection>,
        ws!(do_parse!(
                tag_s!(">>") >>
-               filename: token >>
-               (OutputRedirection { filename, mode: WriteMode::Append } )
+               filename: token_str >>
+               (OutputRedirection {
+                   filename,
+                   mode: WriteMode::Append
+               } )
           )
        ));
 
 named!(pipe, tag_s!("|"));
 named!(background, tag_s!("&"));
 
+named!(token, recognize!(tk));
+named!(token_str<String>,
+       map_res!(
+           map_res!(
+               token,
+               str::from_utf8
+            ),
+            FromStr::from_str
+       ));
 named!(tk<()>,
        do_parse!(
            none_of!("<>|& \t\r\n") >>
            is_not!("<>|& \t\r\n") >>
            ()
        ));
-named!(token, recognize!(tk));
 
 named!(end_of_job, alt!(eof | eol));
 named!(eof, eof!());
@@ -108,32 +126,35 @@ mod tests {
     use super::*;
     use nom::IResult::{Done, Incomplete};
 
-    macro_rules! stref {
-        ($s:expr) => { & $s [..] }
+    macro_rules! str_ref {
+        ($s: expr) => { & $s [..] }
+    }
+    macro_rules! string_vec {
+        ($($s: expr), *) => { vec![$(String::from($s)), *] }
     }
 
     #[test]
     fn token_test() {
-        let empty = stref!(b"");
+        let empty = str_ref!(b"");
 
         assert_eq!(
             token(b"token"),
-            Done(empty, stref!(b"token")));
+            Done(empty, str_ref!(b"token")));
         assert_eq!(
             token(b"token<"),
-            Done(stref!(b"<"), stref!(b"token")));
+            Done(str_ref!(b"<"), str_ref!(b"token")));
         assert_eq!(
             token(b"token>|&"),
-            Done(stref!(b">|&"), stref!(b"token")));
+            Done(str_ref!(b">|&"), str_ref!(b"token")));
         assert_eq!(
             token(b"token "),
-            Done(stref!(b" "), stref!(b"token")));
+            Done(str_ref!(b" "), str_ref!(b"token")));
         assert_eq!(
             token(b"token token"),
-            Done(stref!(b" token"), stref!(b"token")));
+            Done(str_ref!(b" token"), str_ref!(b"token")));
         assert_eq!(
             token(b"token\ttoken  "),
-            Done(stref!(b"\ttoken  "), stref!(b"token")));
+            Done(str_ref!(b"\ttoken  "), str_ref!(b"token")));
 
         match token(b"") {
             Incomplete(_) => {}
@@ -147,63 +168,63 @@ mod tests {
 
         assert_eq!(
             command(b"cmd"),
-            Done(empty, vec![stref!(b"cmd")]));
+            Done(empty, string_vec!["cmd"]));
         assert_eq!(
             command(b"cmd arg"),
-            Done(empty, vec![stref!(b"cmd"), stref!(b"arg")]));
+            Done(empty, string_vec!["cmd", "arg"]));
         assert_eq!(
             command(b" cmd  arg0\targ1 \t"),
-            Done(empty, vec![stref!(b"cmd"), stref!(b"arg0"), stref!(b"arg1")]));
+            Done(empty, string_vec!["cmd", "arg0", "arg1"]));
     }
 
     #[test]
     fn redirect_in_test() {
-        let empty = stref!(b"");
+        let empty = str_ref!(b"");
 
         assert_eq!(
             redirect_in(b"< filename"),
-            Done(empty, stref!(b"filename")));
+            Done(empty, String::from("filename")));
         assert_eq!(
             redirect_in(b" <filename "),
-            Done(empty, stref!(b"filename")));
+            Done(empty, String::from("filename")));
     }
 
     #[test]
     fn redirect_out_test() {
-        let empty = stref!(b"");
+        let empty = str_ref!(b"");
 
         assert_eq!(
             redirect_out(b"> filename"),
             Done(empty,
                  OutputRedirection {
-                     filename: stref!(b"filename"),
+                     filename: String::from("filename"),
                      mode: WriteMode::Truncate
                  }));
         assert_eq!(
             redirect_out(b" >filename "),
             Done(empty,
                  OutputRedirection {
-                     filename: stref!(b"filename"),
+                     filename: String::from("filename"),
                      mode: WriteMode::Truncate
                  }));
         assert_eq!(
             redirect_out(b">> filename"),
             Done(empty,
                  OutputRedirection {
-                     filename: stref!(b"filename"),
+                     filename: String::from("filename"),
                      mode: WriteMode::Append
                  }));
     }
 
     #[test]
     fn process_test() {
-        let empty = stref!(b"");
+        let empty = str_ref!(b"");
 
         assert_eq!(
             process(b"cmd"),
             Done(empty,
                  Process {
-                     argument_list: vec![stref!(b"cmd")],
+                     argument_list: string_vec!["cmd"],
                      redirect_in: None,
                      redirect_out: None,
                  }));
@@ -211,18 +232,18 @@ mod tests {
             process(b"cmd < file"),
             Done(empty,
                  Process {
-                     argument_list: vec![stref!(b"cmd")],
-                     redirect_in: Some(stref!(b"file")),
+                     argument_list: string_vec!["cmd"],
+                     redirect_in: Some(String::from("file")),
                      redirect_out: None,
                  }));
         assert_eq!(
             process(b"cmd > file"),
             Done(empty,
                  Process {
-                     argument_list: vec![stref!(b"cmd")],
+                     argument_list: string_vec!["cmd"],
                      redirect_in: None,
                      redirect_out: Some(OutputRedirection {
-                         filename: stref!(b"file"),
+                         filename: String::from("file"),
                          mode: WriteMode::Truncate
                      }),
                  }));
@@ -230,10 +251,10 @@ mod tests {
             process(b"cmd arg0 arg1 < file0 >> file1"),
             Done(empty,
                  Process {
-                     argument_list: vec![stref!(b"cmd"), stref!(b"arg0"), stref!(b"arg1")],
-                     redirect_in: Some(stref!(b"file0")),
+                     argument_list: string_vec!["cmd", "arg0", "arg1"],
+                     redirect_in: Some(String::from("file0")),
                      redirect_out: Some(OutputRedirection {
-                         filename: stref!(b"file1"),
+                         filename: String::from("file1"),
                          mode: WriteMode::Append
                      }),
                  }));
@@ -256,16 +277,16 @@ mod tests {
             Ok(Job {
                 process_list: vec![
                     Process {
-                        argument_list: vec![stref!(b"cmd0")],
-                        redirect_in: Some(stref!(b"file0")),
+                        argument_list: string_vec!["cmd0"],
+                        redirect_in: Some(String::from("file0")),
                         redirect_out: None,
                     },
                     Process {
-                        argument_list: vec![stref!(b"cmd1"), stref!(b"arg1")],
+                        argument_list: string_vec!["cmd1", "arg1"],
                         redirect_in: None,
                         redirect_out: Some(
                             OutputRedirection {
-                                filename: stref!(b"file1"),
+                                filename: String::from("file1"),
                                 mode: WriteMode::Truncate
                             }),
                     },
@@ -277,25 +298,25 @@ mod tests {
             Ok(Job {
                 process_list: vec![
                     Process {
-                        argument_list: vec![stref!(b"cmd0")],
-                        redirect_in: Some(stref!(b"file0")),
+                        argument_list: string_vec!["cmd0"],
+                        redirect_in: Some(String::from("file0")),
                         redirect_out: None,
                     },
                     Process {
-                        argument_list: vec![stref!(b"cmd1"), stref!(b"arg1")],
-                        redirect_in: Some(stref!(b"file1")),
+                        argument_list: string_vec!["cmd1", "arg1"],
+                        redirect_in: Some(String::from("file1")),
                         redirect_out: Some(
                             OutputRedirection {
-                                filename: stref!(b"file2"),
+                                filename: String::from("file2"),
                                 mode: WriteMode::Truncate
                             }),
                     },
                     Process {
-                        argument_list: vec![stref!(b"cmd2"), stref!(b"arg2"), stref!(b"arg3")],
+                        argument_list: string_vec!["cmd2", "arg2", "arg3"],
                         redirect_in: None,
                         redirect_out: Some(
                             OutputRedirection {
-                                filename: stref!(b"file3"),
+                                filename: String::from("file3"),
                                 mode: WriteMode::Append
                             }),
                     },
