@@ -113,7 +113,7 @@ named!(token_str<String>,
 named!(tk<()>,
        do_parse!(
            none_of!("<>|& \t\r\n") >>
-           is_not!("<>|& \t\r\n") >>
+           opt!(complete!(is_not!("<>|& \t\r\n"))) >>
            ()
        ));
 
@@ -124,7 +124,7 @@ named!(eol, is_a!(";\r\n"));
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nom::IResult::{Done, Incomplete};
+    use nom::IResult::Done;
 
     macro_rules! str_ref {
         ($s: expr) => { & $s [..] }
@@ -137,6 +137,9 @@ mod tests {
     fn token_test() {
         let empty = str_ref!(b"");
 
+        assert_eq!(
+            token(b"t"),
+            Done(empty, str_ref!(b"t")));
         assert_eq!(
             token(b"token"),
             Done(empty, str_ref!(b"token")));
@@ -156,9 +159,8 @@ mod tests {
             token(b"token\ttoken  "),
             Done(str_ref!(b"\ttoken  "), str_ref!(b"token")));
 
-        match token(b"") {
-            Incomplete(_) => {}
-            _ => assert!(false),
+        if !token(b"").is_incomplete() {
+            assert!(false);
         }
     }
 
