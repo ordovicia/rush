@@ -66,21 +66,22 @@ named!(process2<&[u8], Process>,
            })
        ));
 
-named!(command<Vec<String> >, ws!(many1!(token_str)));
+named!(command<Vec<String> >, ws!(many1!(token)));
 
 named!(redirect_in<String>,
        ws!(do_parse!(
                tag_s!("<") >>
-               filename: token_str >>
+               filename: token >>
                (filename)
           )
        ));
+
 named!(redirect_out<OutputRedirection>,
        alt!(redirect_out_trunc | redirect_out_append));
 named!(redirect_out_trunc<OutputRedirection>,
        ws!(do_parse!(
                tag_s!(">") >>
-               filename: token_str >>
+               filename: token >>
                (OutputRedirection {
                    filename,
                    mode: WriteMode::Truncate
@@ -90,7 +91,7 @@ named!(redirect_out_trunc<OutputRedirection>,
 named!(redirect_out_append<OutputRedirection>,
        ws!(do_parse!(
                tag_s!(">>") >>
-               filename: token_str >>
+               filename: token >>
                (OutputRedirection {
                    filename,
                    mode: WriteMode::Append
@@ -101,11 +102,10 @@ named!(redirect_out_append<OutputRedirection>,
 named!(pipe, tag_s!("|"));
 named!(background, tag_s!("&"));
 
-named!(token, recognize!(tk));
-named!(token_str<String>,
+named!(token<String>,
        map_res!(
            map_res!(
-               token,
+               recognize!(tk),
                str::from_utf8
             ),
             FromStr::from_str
@@ -139,25 +139,25 @@ mod tests {
 
         assert_eq!(
             token(b"t"),
-            Done(empty, str_ref!(b"t")));
+            Done(empty, String::from("t")));
         assert_eq!(
             token(b"token"),
-            Done(empty, str_ref!(b"token")));
+            Done(empty, String::from("token")));
         assert_eq!(
             token(b"token<"),
-            Done(str_ref!(b"<"), str_ref!(b"token")));
+            Done(str_ref!(b"<"), String::from("token")));
         assert_eq!(
             token(b"token>|&"),
-            Done(str_ref!(b">|&"), str_ref!(b"token")));
+            Done(str_ref!(b">|&"), String::from("token")));
         assert_eq!(
             token(b"token "),
-            Done(str_ref!(b" "), str_ref!(b"token")));
+            Done(str_ref!(b" "), String::from("token")));
         assert_eq!(
             token(b"token token"),
-            Done(str_ref!(b" token"), str_ref!(b"token")));
+            Done(str_ref!(b" token"), String::from("token")));
         assert_eq!(
             token(b"token\ttoken  "),
-            Done(str_ref!(b"\ttoken  "), str_ref!(b"token")));
+            Done(str_ref!(b"\ttoken  "), String::from("token")));
 
         if !token(b"").is_incomplete() {
             assert!(false);
