@@ -1,4 +1,6 @@
-use super::Result;
+use std::process;
+
+use errors::*;
 use parser;
 
 #[derive(Debug, PartialEq)]
@@ -10,6 +12,30 @@ pub struct Job {
 impl Job {
     pub fn from_input(input: &[u8]) -> Result<Self> {
         parser::parse_job(input)
+    }
+
+    pub fn spawn(&self) -> Result<()> {
+        assert!(self.process_list.len() > 0);
+        let proc0 = &self.process_list[0];
+
+        assert!(proc0.argument_list.len() > 0);
+        let mut child = match process::Command::new(&proc0.argument_list[0])
+            .args(&proc0.argument_list[1..])
+            .spawn() {
+            Ok(child) => child,
+            Err(_) => {
+                return Err(Error::SpawnChild);
+            }
+        };
+
+        match child.wait() {
+            Ok(status) => println!("child exited with status {}", status),
+            Err(_) => {
+                return Err(Error::WaitChild);
+            }
+        }
+
+        Ok(())
     }
 }
 

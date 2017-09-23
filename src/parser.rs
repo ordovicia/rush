@@ -3,20 +3,20 @@ use std::str::FromStr;
 
 use nom::{self, multispace};
 
-use super::{Result, Error};
-use job::{Job, JobMode, Process, OutputRedirection, WriteMode};
+use errors::*;
+use job::*;
 
 pub(crate) fn parse_job(input: &[u8]) -> Result<Job> {
     if let nom::IResult::Done(_, job) = job(input) {
         Ok(job)
     } else {
-        Err(Error::ParseError)
+        Err(Error::ParseJob)
     }
 }
 
 named!(job<&[u8], Job>,
        do_parse!(
-           process_list: process_list >>
+           process_list: separated_nonempty_list_complete!(pipe, process) >>
            bg: opt!(complete!(background)) >>
            opt!(complete!(multispace)) >>
            end_of_job >>
@@ -29,8 +29,6 @@ named!(job<&[u8], Job>,
                      }
             })
        ));
-
-named!(process_list<Vec<Process> >, separated_nonempty_list_complete!(pipe, process));
 
 named!(process<&[u8], Process>,
        alt!(process0 | process1 | process2));
