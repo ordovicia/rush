@@ -1,0 +1,7 @@
+[package]
+authors = ["Hidehito Yabuuchi <hdht.ybuc@gmail.com>"]
+name = "rush"
+version = "0.1.0"
+
+[dependencies]
+nom = "3.2.0"
