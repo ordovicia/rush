@@ -109,8 +109,8 @@ named!(token<String>,
        ));
 named!(tk<()>,
        do_parse!(
-           none_of!("<>|& \t\r\n") >>
-           opt!(complete!(is_not!("<>|& \t\r\n"))) >>
+           none_of!("<>|& \t;\r\n") >>
+           opt!(complete!(is_not!("<>|& \t;\r\n"))) >>
            ()
        ));
 
