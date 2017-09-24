@@ -30,8 +30,8 @@ named!(job<Job>,
        ));
 
 named!(process<Process>,
-       alt!(process0 | process1 | process2));
-named!(process0<Process>,
+       alt!(process_in_out | process_out_in | process_cmd_only));
+named!(process_in_out<Process>,
        do_parse!(
            argument_list: command >>
            redirect_in: complete!(redirect_in) >>
@@ -42,7 +42,7 @@ named!(process0<Process>,
                redirect_out
            })
        ));
-named!(process1<Process>,
+named!(process_out_in<Process>,
        do_parse!(
            argument_list: command >>
            redirect_out: complete!(redirect_out) >>
@@ -53,7 +53,7 @@ named!(process1<Process>,
                redirect_out: Some(redirect_out)
            })
        ));
-named!(process2<Process>,
+named!(process_cmd_only<Process>,
        do_parse!(
            argument_list: command >>
            (Process {
@@ -68,8 +68,8 @@ named!(command<Vec<String> >, ws!(many1!(token)));
 named!(redirect_in<String>,
        ws!(do_parse!(
                tag_s!("<") >>
-               filename: token >>
-               (filename)
+               file_name: token >>
+               (file_name)
           )
        ));
 
@@ -78,9 +78,9 @@ named!(redirect_out<OutputRedirection>,
 named!(redirect_out_trunc<OutputRedirection>,
        ws!(do_parse!(
                tag_s!(">") >>
-               filename: token >>
+               file_name: token >>
                (OutputRedirection {
-                   filename,
+                   file_name,
                    mode: WriteMode::Truncate
                } )
           )
@@ -88,9 +88,9 @@ named!(redirect_out_trunc<OutputRedirection>,
 named!(redirect_out_append<OutputRedirection>,
        ws!(do_parse!(
                tag_s!(">>") >>
-               filename: token >>
+               file_name: token >>
                (OutputRedirection {
-                   filename,
+                   file_name,
                    mode: WriteMode::Append
                } )
           )
@@ -178,34 +178,34 @@ mod tests {
     #[test]
     fn redirect_in_test() {
         assert_eq!(
-            redirect_in(b"< filename"),
-            Done(str_ref!(EMPTY), String::from("filename")));
+            redirect_in(b"< file_name"),
+            Done(str_ref!(EMPTY), String::from("file_name")));
         assert_eq!(
-            redirect_in(b" <filename "),
-            Done(str_ref!(EMPTY), String::from("filename")));
+            redirect_in(b" <file_name "),
+            Done(str_ref!(EMPTY), String::from("file_name")));
     }
 
     #[test]
     fn redirect_out_test() {
         assert_eq!(
-            redirect_out(b"> filename"),
+            redirect_out(b"> file_name"),
             Done(str_ref!(EMPTY),
                  OutputRedirection {
-                     filename: String::from("filename"),
+                     file_name: String::from("file_name"),
                      mode: WriteMode::Truncate
                  }));
         assert_eq!(
-            redirect_out(b" >filename "),
+            redirect_out(b" >file_name "),
             Done(str_ref!(EMPTY),
                  OutputRedirection {
-                     filename: String::from("filename"),
+                     file_name: String::from("file_name"),
                      mode: WriteMode::Truncate
                  }));
         assert_eq!(
-            redirect_out(b">> filename"),
+            redirect_out(b">> file_name"),
             Done(str_ref!(EMPTY),
                  OutputRedirection {
-                     filename: String::from("filename"),
+                     file_name: String::from("file_name"),
                      mode: WriteMode::Append
                  }));
     }
@@ -235,7 +235,7 @@ mod tests {
                      argument_list: string_vec!["cmd"],
                      redirect_in: None,
                      redirect_out: Some(OutputRedirection {
-                         filename: String::from("file"),
+                         file_name: String::from("file"),
                          mode: WriteMode::Truncate
                      }),
                  }));
@@ -246,7 +246,7 @@ mod tests {
                      argument_list: string_vec!["cmd", "arg0", "arg1"],
                      redirect_in: Some(String::from("file0")),
                      redirect_out: Some(OutputRedirection {
-                         filename: String::from("file1"),
+                         file_name: String::from("file1"),
                          mode: WriteMode::Append
                      }),
                  }));
@@ -278,7 +278,7 @@ mod tests {
                         redirect_in: None,
                         redirect_out: Some(
                             OutputRedirection {
-                                filename: String::from("file1"),
+                                file_name: String::from("file1"),
                                 mode: WriteMode::Truncate
                             }),
                     },
@@ -299,7 +299,7 @@ mod tests {
                         redirect_in: Some(String::from("file1")),
                         redirect_out: Some(
                             OutputRedirection {
-                                filename: String::from("file2"),
+                                file_name: String::from("file2"),
                                 mode: WriteMode::Truncate
                             }),
                     },
@@ -308,7 +308,7 @@ mod tests {
                         redirect_in: None,
                         redirect_out: Some(
                             OutputRedirection {
-                                filename: String::from("file3"),
+                                file_name: String::from("file3"),
                                 mode: WriteMode::Append
                             }),
                     },

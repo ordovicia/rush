@@ -1,4 +1,5 @@
-use std::process;
+use std::{process, fs};
+use std::os::unix::io::{FromRawFd, IntoRawFd};
 
 use errors::*;
 use parser;
@@ -27,8 +28,34 @@ impl Job {
     fn spawn_process(process: &Process) -> Result<process::Child> {
         assert!(process.argument_list.len() > 0);
 
+        let stdin = match process.redirect_in {
+            Some(ref file_name) => {
+                let file = fs::File::open(file_name)?;
+                let file_fd = file.into_raw_fd();
+                unsafe { process::Stdio::from_raw_fd(file_fd) }
+            }
+            None => process::Stdio::inherit(),
+        };
+
+        let stdout = match process.redirect_out {
+            Some(OutputRedirection {
+                     ref file_name,
+                     ref mode,
+                 }) => {
+                let file = match *mode {
+                    WriteMode::Truncate => fs::File::create(file_name)?,
+                    WriteMode::Append => fs::OpenOptions::new().append(true).open(file_name)?,
+                };
+                let file_fd = file.into_raw_fd();
+                unsafe { process::Stdio::from_raw_fd(file_fd) }
+            }
+            None => process::Stdio::inherit(),
+        };
+
         process::Command::new(&process.argument_list[0])
             .args(&process.argument_list[1..])
+            .stdin(stdin)
+            .stdout(stdout)
             .spawn()
             .map_err(|e| Error::ExecuteError(e))
     }
@@ -50,7 +77,7 @@ pub(crate) struct Process {
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct OutputRedirection {
-    pub filename: String,
+    pub file_name: String,
     pub mode: WriteMode,
 }
 

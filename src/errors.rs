@@ -12,12 +12,16 @@ pub enum Error {
 
 impl PartialEq for Error {
     fn eq(&self, other: &Self) -> bool {
-        use self::Error::ExecuteError;
-
         match (self, other) {
-            (&ExecuteError(_), &ExecuteError(_)) => true,
+            (&Error::ExecuteError(_), &Error::ExecuteError(_)) => true,
             (s, o) => s == o,
         }
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Error::ExecuteError(e)
     }
 }
 
