@@ -20,7 +20,7 @@ fn main() {
 }
 
 fn spawn(input: &[u8]) -> Result<()> {
-    let job = Job::from_input(input)?;
+    let (_, job) = Job::from_input(input)?;
     job.spawn()?;
     Ok(())
 }

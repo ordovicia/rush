@@ -1,20 +1,19 @@
-use std::str;
-use std::str::FromStr;
+use std::str::{self, FromStr};
 
-use nom::{self, multispace};
+use nom::{IResult, multispace};
 
 use errors::*;
 use job::*;
 
-pub(crate) fn parse_job(input: &[u8]) -> Result<Job> {
-    if let nom::IResult::Done(_, job) = job(input) {
-        Ok(job)
-    } else {
-        Err(Error::ParseJob)
+pub(crate) fn parse_job(input: &[u8]) -> Result<(&[u8], Job)> {
+    match job(input) {
+        IResult::Done(remained, job) => Ok((remained, job)),
+        IResult::Error(e) => Err(Error::ParseError(ParseError::Error(e))),
+        IResult::Incomplete(e) => Err(Error::ParseError(ParseError::Incomplete(e))),
     }
 }
 
-named!(job<&[u8], Job>,
+named!(job<Job>,
        do_parse!(
            process_list: separated_nonempty_list_complete!(pipe, process) >>
            bg: opt!(complete!(background)) >>
@@ -30,9 +29,9 @@ named!(job<&[u8], Job>,
             })
        ));
 
-named!(process<&[u8], Process>,
+named!(process<Process>,
        alt!(process0 | process1 | process2));
-named!(process0<&[u8], Process>,
+named!(process0<Process>,
        do_parse!(
            argument_list: command >>
            redirect_in: complete!(redirect_in) >>
@@ -43,7 +42,7 @@ named!(process0<&[u8], Process>,
                redirect_out
            })
        ));
-named!(process1<&[u8], Process>,
+named!(process1<Process>,
        do_parse!(
            argument_list: command >>
            redirect_out: complete!(redirect_out) >>
@@ -54,7 +53,7 @@ named!(process1<&[u8], Process>,
                redirect_out: Some(redirect_out)
            })
        ));
-named!(process2<&[u8], Process>,
+named!(process2<Process>,
        do_parse!(
            argument_list: command >>
            (Process {
@@ -121,8 +120,9 @@ named!(eol, is_a!(";\r\n"));
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use nom::IResult::Done;
+
+    use super::*;
 
     macro_rules! str_ref {
         ($s: expr) => { & $s [..] }
@@ -131,16 +131,16 @@ mod tests {
         ($($s: expr), *) => { vec![$(String::from($s)), *] }
     }
 
+    const EMPTY: &'static [u8] = b"";
+
     #[test]
     fn token_test() {
-        let empty = str_ref!(b"");
-
         assert_eq!(
             token(b"t"),
-            Done(empty, String::from("t")));
+            Done(str_ref!(EMPTY), String::from("t")));
         assert_eq!(
             token(b"token"),
-            Done(empty, String::from("token")));
+            Done(str_ref!(EMPTY), String::from("token")));
         assert_eq!(
             token(b"token<"),
             Done(str_ref!(b"<"), String::from("token")));
@@ -164,52 +164,46 @@ mod tests {
 
     #[test]
     fn command_test() {
-        let empty = &b""[..];
-
         assert_eq!(
             command(b"cmd"),
-            Done(empty, string_vec!["cmd"]));
+            Done(str_ref!(EMPTY), string_vec!["cmd"]));
         assert_eq!(
             command(b"cmd arg"),
-            Done(empty, string_vec!["cmd", "arg"]));
+            Done(str_ref!(EMPTY), string_vec!["cmd", "arg"]));
         assert_eq!(
             command(b" cmd  arg0\targ1 \t"),
-            Done(empty, string_vec!["cmd", "arg0", "arg1"]));
+            Done(str_ref!(EMPTY), string_vec!["cmd", "arg0", "arg1"]));
     }
 
     #[test]
     fn redirect_in_test() {
-        let empty = str_ref!(b"");
-
         assert_eq!(
             redirect_in(b"< filename"),
-            Done(empty, String::from("filename")));
+            Done(str_ref!(EMPTY), String::from("filename")));
         assert_eq!(
             redirect_in(b" <filename "),
-            Done(empty, String::from("filename")));
+            Done(str_ref!(EMPTY), String::from("filename")));
     }
 
     #[test]
     fn redirect_out_test() {
-        let empty = str_ref!(b"");
-
         assert_eq!(
             redirect_out(b"> filename"),
-            Done(empty,
+            Done(str_ref!(EMPTY),
                  OutputRedirection {
                      filename: String::from("filename"),
                      mode: WriteMode::Truncate
                  }));
         assert_eq!(
             redirect_out(b" >filename "),
-            Done(empty,
+            Done(str_ref!(EMPTY),
                  OutputRedirection {
                      filename: String::from("filename"),
                      mode: WriteMode::Truncate
                  }));
         assert_eq!(
             redirect_out(b">> filename"),
-            Done(empty,
+            Done(str_ref!(EMPTY),
                  OutputRedirection {
                      filename: String::from("filename"),
                      mode: WriteMode::Append
@@ -218,11 +212,9 @@ mod tests {
 
     #[test]
     fn process_test() {
-        let empty = str_ref!(b"");
-
         assert_eq!(
             process(b"cmd"),
-            Done(empty,
+            Done(str_ref!(EMPTY),
                  Process {
                      argument_list: string_vec!["cmd"],
                      redirect_in: None,
@@ -230,7 +222,7 @@ mod tests {
                  }));
         assert_eq!(
             process(b"cmd < file"),
-            Done(empty,
+            Done(str_ref!(EMPTY),
                  Process {
                      argument_list: string_vec!["cmd"],
                      redirect_in: Some(String::from("file")),
@@ -238,7 +230,7 @@ mod tests {
                  }));
         assert_eq!(
             process(b"cmd > file"),
-            Done(empty,
+            Done(str_ref!(EMPTY),
                  Process {
                      argument_list: string_vec!["cmd"],
                      redirect_in: None,
@@ -249,7 +241,7 @@ mod tests {
                  }));
         assert_eq!(
             process(b"cmd arg0 arg1 < file0 >> file1"),
-            Done(empty,
+            Done(str_ref!(EMPTY),
                  Process {
                      argument_list: string_vec!["cmd", "arg0", "arg1"],
                      redirect_in: Some(String::from("file0")),
@@ -274,7 +266,7 @@ mod tests {
     fn parse_job_test() {
         assert_eq!(
             parse_job(b"cmd0 < file0 | cmd1 arg1 > file1"),
-            Ok(Job {
+            Ok((str_ref!(EMPTY), Job {
                 process_list: vec![
                     Process {
                         argument_list: string_vec!["cmd0"],
@@ -292,10 +284,10 @@ mod tests {
                     },
                 ],
                 mode: JobMode::ForeGround
-            }));
+            })));
         assert_eq!(
             parse_job(b"cmd0 < file0 | cmd1 arg1 < file1 > file2 | cmd2 arg2 arg3 >> file3 &"),
-            Ok(Job {
+            Ok((str_ref!(EMPTY), Job {
                 process_list: vec![
                     Process {
                         argument_list: string_vec!["cmd0"],
@@ -322,7 +314,7 @@ mod tests {
                     },
                 ],
                 mode: JobMode::BackGround
-            }));
+            })));
 
         assert_eq!(
             parse_job(b"cmd0 < file0 | cmd1 arg1 < file1 > file2 | cmd2 arg2 arg3 >> file3 &"),
