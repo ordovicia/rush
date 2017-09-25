@@ -57,7 +57,7 @@ named!(job<Job>,
        ));
 
 named!(process_list<Vec<Process> >,
-       alt!(process_2many | process_1only));
+       alt!(complete!(process_2many) | process_1only));
 
 named!(process_2many<Vec<Process> >, // proc (< file) | proc | ... | proc (> file)
        do_parse!(
@@ -243,9 +243,7 @@ mod tests {
             token(b"token\ttoken  "),
             Done(str_ref!(b"\ttoken  "), String::from("token")));
 
-        if !token(b"").is_incomplete() {
-            assert!(false);
-        }
+        assert!(token(b"").is_incomplete());
     }
 
     #[test]
@@ -278,21 +276,21 @@ mod tests {
             Done(str_ref!(EMPTY),
                  OutputRedirection {
                      file_name: String::from("file_name"),
-                     mode: WriteMode::Truncate
+                     mode: WriteMode::Truncate,
                  }));
         assert_eq!(
             redirect_out(b" >file_name "),
             Done(str_ref!(EMPTY),
                  OutputRedirection {
                      file_name: String::from("file_name"),
-                     mode: WriteMode::Truncate
+                     mode: WriteMode::Truncate,
                  }));
         assert_eq!(
             redirect_out(b">> file_name"),
             Done(str_ref!(EMPTY),
                  OutputRedirection {
                      file_name: String::from("file_name"),
-                     mode: WriteMode::Append
+                     mode: WriteMode::Append,
                  }));
     }
 
@@ -322,7 +320,7 @@ mod tests {
                      redirect_in: None,
                      redirect_out: Some(OutputRedirection {
                          file_name: String::from("file"),
-                         mode: WriteMode::Truncate
+                         mode: WriteMode::Truncate,
                      }),
                  }));
         assert_eq!(
@@ -331,10 +329,11 @@ mod tests {
                  Process {
                      argument_list: string_vec!["cmd", "arg0", "arg1"],
                      redirect_in: Some(String::from("file0")),
-                     redirect_out: Some(OutputRedirection {
-                         file_name: String::from("file1"),
-                         mode: WriteMode::Append
-                     }),
+                     redirect_out: Some(
+                         OutputRedirection {
+                             file_name: String::from("file1"),
+                             mode: WriteMode::Append,
+                        }),
                  }));
 
         assert_eq!(
@@ -351,6 +350,34 @@ mod tests {
     #[test]
     fn parse_job_test() {
         assert_eq!(
+            parse_job(b"cmd"),
+            Ok((str_ref!(EMPTY), Job {
+                process_list: vec![
+                    Process {
+                        argument_list: string_vec!["cmd"],
+                        redirect_in: None,
+                        redirect_out: None,
+                    },
+                ],
+                mode: JobMode::ForeGround,
+            })));
+        assert_eq!(
+            parse_job(b"cmd < file0 > file1"),
+            Ok((str_ref!(EMPTY), Job {
+                process_list: vec![
+                    Process {
+                        argument_list: string_vec!["cmd"],
+                        redirect_in: Some(String::from("file0")),
+                        redirect_out: Some(
+                            OutputRedirection {
+                                file_name: String::from("file1"),
+                                mode: WriteMode::Truncate,
+                            }),
+                    },
+                ],
+                mode: JobMode::ForeGround,
+            })));
+        assert_eq!(
             parse_job(b"cmd0 < file0 | cmd1 arg1 > file1"),
             Ok((str_ref!(EMPTY), Job {
                 process_list: vec![
@@ -365,11 +392,11 @@ mod tests {
                         redirect_out: Some(
                             OutputRedirection {
                                 file_name: String::from("file1"),
-                                mode: WriteMode::Truncate
+                                mode: WriteMode::Truncate,
                             }),
                     },
                 ],
-                mode: JobMode::ForeGround
+                mode: JobMode::ForeGround,
             })));
         assert_eq!(
             parse_job(b"cmd0 < file0 | cmd1 arg1 | cmd2 arg2 arg3 >> file3 &"),
@@ -391,11 +418,11 @@ mod tests {
                         redirect_out: Some(
                             OutputRedirection {
                                 file_name: String::from("file3"),
-                                mode: WriteMode::Append
+                                mode: WriteMode::Append,
                             }),
                     },
                 ],
-                mode: JobMode::BackGround
+                mode: JobMode::BackGround,
             })));
 
         assert_eq!(
