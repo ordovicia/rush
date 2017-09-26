@@ -30,7 +30,8 @@ use std::str::{self, FromStr};
 
 use nom::{self, multispace};
 
-use job::{Job, JobMode, Process, OutputRedirection, WriteMode};
+use job::{Job, JobMode};
+use job::process::{self, Process};
 
 pub(crate) fn parse_job(input: &[u8]) -> result::Result<Job, nom::IError<u32>> {
     job(input).to_full_result()
@@ -67,11 +68,11 @@ named!(process_2many<Vec<Process> >, // proc (< file) | proc | ... | proc (> fil
 named!(process_in<Process>, // [proc (< file)] | ..
        do_parse!(
            argument_list: command >>
-           redirect_in: opt!(complete!(redirect_in)) >>
+           input: opt!(complete!(redirect_in)) >>
            (Process {
                argument_list,
-               redirect_in,
-               redirect_out: None,
+               input,
+               output: Some(process::Output::Pipe),
            })
        ));
 named!(process_cmd_pipe<Process>, // .. | [proc |] ..
@@ -80,18 +81,18 @@ named!(process_cmd_pipe<Process>, // .. | [proc |] ..
            pipe >>
            (Process {
                argument_list,
-               redirect_in: None,
-               redirect_out: None,
+               input: Some(process::Input::Pipe),
+               output: Some(process::Output::Pipe),
            })
        ));
 named!(process_out<Process>, // .. | [proc (> file)]
        do_parse!(
            argument_list: command >>
-           redirect_out: opt!(complete!(redirect_out)) >>
+           output: opt!(complete!(redirect_out)) >>
            (Process {
                argument_list,
-               redirect_in: None,
-               redirect_out,
+               input: Some(process::Input::Pipe),
+               output,
            })
        ));
 
@@ -116,23 +117,23 @@ named!(process_1only_elem<Process>,
 named!(process_in_out<Process>, // proc < file0 (> file1)
        do_parse!(
            argument_list: command >>
-           redirect_in: redirect_in >>
-           redirect_out: opt!(complete!(redirect_out)) >>
+           input: redirect_in >>
+           output: opt!(complete!(redirect_out)) >>
            (Process {
                 argument_list,
-                redirect_in: Some(redirect_in),
-                redirect_out,
+                input: Some(input),
+                output,
            })
        ));
 named!(process_out_in<Process>, // proc > file0 (< file1)
        do_parse!(
            argument_list: command >>
-           redirect_out: redirect_out >>
-           redirect_in: opt!(complete!(redirect_in)) >>
+           output: redirect_out >>
+           input: opt!(complete!(redirect_in)) >>
            (Process {
                 argument_list,
-                redirect_in,
-                redirect_out: Some(redirect_out),
+                input,
+                output: Some(output),
            })
        ));
 named!(process_cmd<Process>,  // proc
@@ -140,41 +141,35 @@ named!(process_cmd<Process>,  // proc
            argument_list: command >>
            (Process {
                argument_list,
-               redirect_in: None,
-               redirect_out: None,
+               input: None,
+               output: None,
            })
        ));
 
 named!(command<Vec<String> >, ws!(many1!(token)));
 
-named!(redirect_in<String>,
+named!(redirect_in<process::Input>,
        ws!(do_parse!(
                tag_s!("<") >>
                file_name: token >>
-               (file_name)
+               (process::Input::Redirect(file_name))
           )
        ));
 
-named!(redirect_out<OutputRedirection>,
-       alt!(redirect_out_trunc | redirect_out_append));
-named!(redirect_out_trunc<OutputRedirection>,
+named!(redirect_out<process::Output>,
+       alt!(redirect_trunc | redirect_append));
+named!(redirect_trunc<process::Output>,
        ws!(do_parse!(
                tag_s!(">") >>
                file_name: token >>
-               (OutputRedirection {
-                   file_name,
-                   mode: WriteMode::Truncate,
-               })
+               (process::Output::Redirect(process::OutputRedirect::Truncate(file_name)))
           )
        ));
-named!(redirect_out_append<OutputRedirection>,
+named!(redirect_append<process::Output>,
        ws!(do_parse!(
                tag_s!(">>") >>
                file_name: token >>
-               (OutputRedirection {
-                   file_name,
-                   mode: WriteMode::Append,
-               })
+               (process::Output::Redirect(process::OutputRedirect::Append(file_name)))
           )
        ));
 
@@ -214,15 +209,18 @@ mod tests {
     }
 
     const EMPTY: &'static [u8] = b"";
+    macro_rules! empty {
+        () => { str_ref!(EMPTY) }
+    }
 
     #[test]
     fn token_test() {
         assert_eq!(
             token(b"t"),
-            Done(str_ref!(EMPTY), String::from("t")));
+            Done(empty!(), String::from("t")));
         assert_eq!(
             token(b"token"),
-            Done(str_ref!(EMPTY), String::from("token")));
+            Done(empty!(), String::from("token")));
         assert_eq!(
             token(b"token<"),
             Done(str_ref!(b"<"), String::from("token")));
@@ -246,91 +244,103 @@ mod tests {
     fn command_test() {
         assert_eq!(
             command(b"cmd"),
-            Done(str_ref!(EMPTY), string_vec!["cmd"]));
+            Done(empty!(), string_vec!["cmd"]));
         assert_eq!(
             command(b"cmd arg"),
-            Done(str_ref!(EMPTY), string_vec!["cmd", "arg"]));
+            Done(empty!(), string_vec!["cmd", "arg"]));
         assert_eq!(
             command(b" cmd  arg0\targ1 \t"),
-            Done(str_ref!(EMPTY), string_vec!["cmd", "arg0", "arg1"]));
+            Done(empty!(), string_vec!["cmd", "arg0", "arg1"]));
     }
 
     #[test]
     fn redirect_in_test() {
+        use self::process::Input::Redirect;
+
         assert_eq!(
             redirect_in(b"< file_name"),
-            Done(str_ref!(EMPTY), String::from("file_name")));
+            Done(
+                empty!(),
+                Redirect(String::from("file_name"))
+            ));
         assert_eq!(
             redirect_in(b" <file_name "),
-            Done(str_ref!(EMPTY), String::from("file_name")));
+            Done(
+                empty!(),
+                Redirect(String::from("file_name"))
+            ));
     }
 
     #[test]
     fn redirect_out_test() {
+        use self::process::Output::Redirect;
+        use self::process::OutputRedirect::{Truncate, Append};
+
         assert_eq!(
             redirect_out(b"> file_name"),
-            Done(str_ref!(EMPTY),
-                 OutputRedirection {
-                     file_name: String::from("file_name"),
-                     mode: WriteMode::Truncate,
-                 }));
+            Done(
+                empty!(),
+                Redirect(Truncate(String::from("file_name")))
+            ));
         assert_eq!(
             redirect_out(b" >file_name "),
-            Done(str_ref!(EMPTY),
-                 OutputRedirection {
-                     file_name: String::from("file_name"),
-                     mode: WriteMode::Truncate,
-                 }));
+            Done(
+                empty!(),
+                Redirect(Truncate(String::from("file_name")))
+            ));
         assert_eq!(
             redirect_out(b">> file_name"),
-            Done(str_ref!(EMPTY),
-                 OutputRedirection {
-                     file_name: String::from("file_name"),
-                     mode: WriteMode::Append,
-                 }));
+            Done(
+                empty!(),
+                Redirect(Append(String::from("file_name")))
+            ));
     }
 
     #[test]
     fn process_test() {
+        use self::process::{Input, Output};
+        use self::process::OutputRedirect::{Truncate, Append};
+
         assert_eq!(
             process_1only_elem(b"cmd"),
-            Done(str_ref!(EMPTY),
-                 Process {
-                     argument_list: string_vec!["cmd"],
-                     redirect_in: None,
-                     redirect_out: None,
-                 }));
+            Done(
+                empty!(),
+                Process {
+                    argument_list: string_vec!["cmd"],
+                    input: None,
+                    output: None,
+                 }
+            ));
         assert_eq!(
             process_1only_elem(b"cmd < file"),
-            Done(str_ref!(EMPTY),
-                 Process {
-                     argument_list: string_vec!["cmd"],
-                     redirect_in: Some(String::from("file")),
-                     redirect_out: None,
-                 }));
+            Done(
+                empty!(),
+                Process {
+                    argument_list: string_vec!["cmd"],
+                    input: Some(Input::Redirect(String::from("file"))),
+                    output: None,
+                }
+            ));
         assert_eq!(
             process_1only_elem(b"cmd > file"),
-            Done(str_ref!(EMPTY),
-                 Process {
-                     argument_list: string_vec!["cmd"],
-                     redirect_in: None,
-                     redirect_out: Some(OutputRedirection {
-                         file_name: String::from("file"),
-                         mode: WriteMode::Truncate,
-                     }),
-                 }));
+            Done(
+                empty!(),
+                Process {
+                    argument_list: string_vec!["cmd"],
+                    input: None,
+                    output: Some(Output::Redirect(Truncate(String::from("file"))))
+                },
+            ));
         assert_eq!(
             process_1only_elem(b"cmd arg0 arg1 < file0 >> file1"),
-            Done(str_ref!(EMPTY),
-                 Process {
-                     argument_list: string_vec!["cmd", "arg0", "arg1"],
-                     redirect_in: Some(String::from("file0")),
-                     redirect_out: Some(
-                         OutputRedirection {
-                             file_name: String::from("file1"),
-                             mode: WriteMode::Append,
-                        }),
-                 }));
+            Done(
+                empty!(),
+                Process {
+                    argument_list: string_vec!["cmd", "arg0", "arg1"],
+                    input: Some(Input::Redirect(String::from("file0"))),
+                    output: Some(Output::Redirect(Append(String::from("file1"))))
+                }
+            ));
 
         assert_eq!(
             process_1only_elem(b"cmd arg0 arg1 < file0 >> file1"),
@@ -345,81 +355,103 @@ mod tests {
 
     #[test]
     fn job_test() {
+        use self::process::{Input, Output};
+        use self::process::OutputRedirect::{Truncate, Append};
+
         assert_eq!(
             job(b"cmd"),
-            Done(str_ref!(EMPTY), Job {
-                process_list: vec![
-                    Process {
-                        argument_list: string_vec!["cmd"],
-                        redirect_in: None,
-                        redirect_out: None,
-                    },
-                ],
-                mode: JobMode::ForeGround,
-            }));
+            Done(
+                empty!(),
+                Job {
+                    process_list: vec![
+                        Process {
+                            argument_list: string_vec!["cmd"],
+                            input: None,
+                            output: None,
+                        },
+                    ],
+                    mode: JobMode::ForeGround,
+                }
+            ));
         assert_eq!(
             job(b"cmd < file0 > file1"),
-            Done(str_ref!(EMPTY), Job {
-                process_list: vec![
-                    Process {
-                        argument_list: string_vec!["cmd"],
-                        redirect_in: Some(String::from("file0")),
-                        redirect_out: Some(
-                            OutputRedirection {
-                                file_name: String::from("file1"),
-                                mode: WriteMode::Truncate,
-                            }),
-                    },
-                ],
-                mode: JobMode::ForeGround,
-            }));
+            Done(
+                empty!(),
+                Job {
+                    process_list: vec![
+                        Process {
+                            argument_list: string_vec!["cmd"],
+                            input: Some(Input::Redirect(String::from("file0"))),
+                            output: Some(Output::Redirect(Truncate(String::from("file1")))),
+                        },
+                    ],
+                    mode: JobMode::ForeGround,
+                }
+            ));
+        assert_eq!(
+            job(b"cmd0 | cmd1"),
+            Done(
+                empty!(),
+                Job {
+                    process_list: vec![
+                        Process {
+                            argument_list: string_vec!["cmd0"],
+                            input: None,
+                            output: Some(Output::Pipe),
+                        },
+                        Process {
+                            argument_list: string_vec!["cmd1"],
+                            input: Some(Input::Pipe),
+                            output: None,
+                        },
+                    ],
+                    mode: JobMode::ForeGround,
+                }
+            ));
         assert_eq!(
             job(b"cmd0 < file0 | cmd1 arg1 > file1"),
-            Done(str_ref!(EMPTY), Job {
-                process_list: vec![
-                    Process {
-                        argument_list: string_vec!["cmd0"],
-                        redirect_in: Some(String::from("file0")),
-                        redirect_out: None,
-                    },
-                    Process {
-                        argument_list: string_vec!["cmd1", "arg1"],
-                        redirect_in: None,
-                        redirect_out: Some(
-                            OutputRedirection {
-                                file_name: String::from("file1"),
-                                mode: WriteMode::Truncate,
-                            }),
-                    },
-                ],
-                mode: JobMode::ForeGround,
-            }));
+            Done(
+                empty!(),
+                Job {
+                    process_list: vec![
+                        Process {
+                            argument_list: string_vec!["cmd0"],
+                            input: Some(Input::Redirect(String::from("file0"))),
+                            output: Some(Output::Pipe),
+                        },
+                        Process {
+                            argument_list: string_vec!["cmd1", "arg1"],
+                            input: Some(Input::Pipe),
+                            output: Some(Output::Redirect(Truncate(String::from("file1")))),
+                        },
+                    ],
+                    mode: JobMode::ForeGround,
+                }
+            ));
         assert_eq!(
             job(b"cmd0 < file0 | cmd1 arg1 | cmd2 arg2 arg3 >> file3 &"),
-            Done(str_ref!(EMPTY), Job {
-                process_list: vec![
-                    Process {
-                        argument_list: string_vec!["cmd0"],
-                        redirect_in: Some(String::from("file0")),
-                        redirect_out: None,
-                    },
-                    Process {
-                        argument_list: string_vec!["cmd1", "arg1"],
-                        redirect_in: None,
-                        redirect_out: None,
-                    },
-                    Process {
-                        argument_list: string_vec!["cmd2", "arg2", "arg3"],
-                        redirect_in: None,
-                        redirect_out: Some(
-                            OutputRedirection {
-                                file_name: String::from("file3"),
-                                mode: WriteMode::Append,
-                            }),
-                    },
-                ],
-                mode: JobMode::BackGround,
-            }));
+            Done(
+                empty!(),
+                Job {
+                    process_list: vec![
+                        Process {
+                            argument_list: string_vec!["cmd0"],
+                            input: Some(Input::Redirect(String::from("file0"))),
+                            output: Some(Output::Pipe),
+                        },
+                        Process {
+                            argument_list: string_vec!["cmd1", "arg1"],
+                            input: Some(Input::Pipe),
+                            output: Some(Output::Pipe),
+                        },
+                        Process {
+                            argument_list: string_vec!["cmd2", "arg2", "arg3"],
+                            input: Some(Input::Pipe),
+                            output: Some(Output::Redirect(Append(String::from("file3")))),
+                        },
+                    ],
+                    mode: JobMode::BackGround,
+                }));
 
         assert_eq!(
             job(b"cmd0 < file0 | cmd1 arg1 | cmd2 arg2 arg3 >> file3 &"),
@@ -439,5 +471,9 @@ mod tests {
 
         assert_err!(b"& cmd");
         assert_err!(b"cmd0 & | cmd1");
+
+        assert_err!(b"cmd0 > file | cmd1");
+        assert_err!(b"cmd0 | cmd1 < file");
+        assert_err!(b"cmd0 | cmd1 > file | cmd2");
     }
 }
