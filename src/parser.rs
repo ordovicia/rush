@@ -1,7 +1,7 @@
 //! # Syntax of job (white space skipped)
 //!
 //! ```ignore
-//! proc     := token+
+//! arg_list     := token+
 //!
 //! redir_in     := "<" token
 //! redir_trunc  := ">" token
@@ -9,20 +9,17 @@
 //! redir_out    := redir_trunc
 //!               | redir_append
 //!
-//! proc_list_1 := proc
-//!              | proc redir_in redir_out?
-//!              | proc redir_out redir_in?
+//! proc_cdr     := arg_list proc_out?
+//! pipe_proc    := "|" proc_cdr
+//! proc_out     := pipe_proc
+//!               | redir_out
 //!
-//! proc_in     := proc redir_in?
-//! proc_out    := proc redir_out?
-//! proc_pipe   := proc "|"
-//! proc_list_2 := proc_in "|" proc_pipe* proc_out
-//!
-//! proc_list   := proc_list_1
-//!              | proc_list_2
+//! proc_car     := arg_list
+//!               | arg_list proc_out
+//!               | arg_list redir_in proc_out?
 //!
 //! end_job     := eof | ";" | "\n" | "\r"
-//! job         := proc_list "&"? end_job
+//! job         := proc_car "&"? end_job
 //! ```
 
 use std::result;
@@ -39,7 +36,7 @@ pub(crate) fn parse_job(input: &[u8]) -> result::Result<Job, nom::IError<u32>> {
 
 named!(job<Job>,
        do_parse!(
-           process_list: process_list >>
+           process_list: process_car >>
            bg: opt!(complete!(background)) >>
            opt!(complete!(multispace)) >>
            end_of_job >>
@@ -53,100 +50,58 @@ named!(job<Job>,
             })
        ));
 
-named!(process_list<Vec<Process> >,
-       alt!(complete!(process_2many) | process_1only));
-
-named!(process_2many<Vec<Process> >, // proc (< file) | proc | ... | proc (> file)
+named!(process_car<Process>,
+       alt!(complete!(process_car_inout) | complete!(process_car_out) | process_car_cmd));
+named!(process_car_cmd<Process>,
        do_parse!(
-           proc_first: process_in >>
-           pipe >>
-           proc_pipe: many0!(process_cmd_pipe) >>
-           proc_last: process_out >>
-           (concat_processes(proc_first, proc_pipe, proc_last))
-       ));
-
-named!(process_in<Process>, // [proc (< file)] | ..
-       do_parse!(
-           argument_list: command >>
-           input: opt!(complete!(redirect_in)) >>
+           argument_list: argument_list >>
            (Process {
                argument_list,
-               input,
-               output: Some(process::Output::Pipe),
+               input: process::Input::Inherit,
+               output: process::Output::Inherit,
            })
        ));
-named!(process_cmd_pipe<Process>, // .. | [proc |] ..
+named!(process_car_out<Process>,
        do_parse!(
-           argument_list: command >>
-           pipe >>
+           argument_list: argument_list >>
+           output: process_output >>
            (Process {
                argument_list,
-               input: Some(process::Input::Pipe),
-               output: Some(process::Output::Pipe),
-           })
-       ));
-named!(process_out<Process>, // .. | [proc (> file)]
-       do_parse!(
-           argument_list: command >>
-           output: opt!(complete!(redirect_out)) >>
-           (Process {
-               argument_list,
-               input: Some(process::Input::Pipe),
+               input: process::Input::Inherit,
                output,
            })
        ));
-
-fn concat_processes(
-    proc_first: Process,
-    proc_pipe: Vec<Process>,
-    proc_last: Process,
-) -> Vec<Process> {
-    let mut concated = vec![proc_first];
-    concated.extend(proc_pipe.into_iter());
-    concated.push(proc_last);
-    concated
-}
-
-named!(process_1only<Vec<Process> >,
-       map!(
-           process_1only_elem,
-           |p| vec![p]
-       ));
-named!(process_1only_elem<Process>,
-       alt!(complete!(process_in_out) | complete!(process_out_in) | process_cmd));
-named!(process_in_out<Process>, // proc < file0 (> file1)
+named!(process_car_inout<Process>,
        do_parse!(
-           argument_list: command >>
+           argument_list: argument_list >>
            input: redirect_in >>
-           output: opt!(complete!(redirect_out)) >>
-           (Process {
-                argument_list,
-                input: Some(input),
-                output,
-           })
-       ));
-named!(process_out_in<Process>, // proc > file0 (< file1)
-       do_parse!(
-           argument_list: command >>
-           output: redirect_out >>
-           input: opt!(complete!(redirect_in)) >>
-           (Process {
-                argument_list,
-                input,
-                output: Some(output),
-           })
-       ));
-named!(process_cmd<Process>,  // proc
-       do_parse!(
-           argument_list: command >>
+           output: opt!(complete!(process_output)) >>
            (Process {
                argument_list,
-               input: None,
-               output: None,
+               input,
+               output: output.unwrap_or(process::Output::Inherit),
+           })
+       ));
+named!(process_output<process::Output>,
+       alt!(pipe_process | redirect_out));
+named!(pipe_process<process::Output>,
+       do_parse!(
+           pipe >>
+           process: process_cdr >>
+           (process::Output::Pipe(Box::new(process)))
+       ));
+named!(process_cdr<Process>,
+       do_parse!(
+           argument_list: argument_list >>
+           output: opt!(complete!(process_output)) >>
+           (Process {
+               argument_list,
+               input: process::Input::Pipe,
+               output: output.unwrap_or(process::Output::Inherit)
            })
        ));
 
-named!(command<Vec<String> >, ws!(many1!(token)));
+named!(argument_list<Vec<String> >, ws!(many1!(token)));
 
 named!(redirect_in<process::Input>,
        ws!(do_parse!(
@@ -241,15 +196,15 @@ mod tests {
     }
 
     #[test]
-    fn command_test() {
+    fn argument_list_test() {
         assert_eq!(
-            command(b"cmd"),
+            argument_list(b"cmd"),
             Done(empty!(), string_vec!["cmd"]));
         assert_eq!(
-            command(b"cmd arg"),
+            argument_list(b"cmd arg"),
             Done(empty!(), string_vec!["cmd", "arg"]));
         assert_eq!(
-            command(b" cmd  arg0\targ1 \t"),
+            argument_list(b" cmd  arg0\targ1 \t"),
             Done(empty!(), string_vec!["cmd", "arg0", "arg1"]));
     }
 
@@ -302,55 +257,59 @@ mod tests {
         use self::process::OutputRedirect::{Truncate, Append};
 
         assert_eq!(
-            process_1only_elem(b"cmd"),
+            process_car(b"cmd"),
             Done(
                 empty!(),
                 Process {
                     argument_list: string_vec!["cmd"],
-                    input: None,
-                    output: None,
+                    input: Input::Inherit,
+                    output: Output::Inherit,
                  }
             ));
         assert_eq!(
-            process_1only_elem(b"cmd < file"),
+            process_car(b"cmd < file"),
             Done(
                 empty!(),
                 Process {
                     argument_list: string_vec!["cmd"],
-                    input: Some(Input::Redirect(String::from("file"))),
-                    output: None,
+                    input: Input::Redirect(String::from("file")),
+                    output: Output::Inherit,
                 }
             ));
         assert_eq!(
-            process_1only_elem(b"cmd > file"),
+            process_car(b"cmd > file"),
             Done(
                 empty!(),
                 Process {
                     argument_list: string_vec!["cmd"],
-                    input: None,
-                    output: Some(Output::Redirect(Truncate(String::from("file"))))
+                    input: Input::Inherit,
+                    output: Output::Redirect(Truncate(String::from("file")))
                 },
             ));
         assert_eq!(
-            process_1only_elem(b"cmd arg0 arg1 < file0 >> file1"),
+            process_car(b"cmd arg0 arg1 < file0 >> file1"),
             Done(
                 empty!(),
                 Process {
                     argument_list: string_vec!["cmd", "arg0", "arg1"],
-                    input: Some(Input::Redirect(String::from("file0"))),
-                    output: Some(Output::Redirect(Append(String::from("file1"))))
+                    input: Input::Redirect(String::from("file0")),
+                    output: Output::Redirect(Append(String::from("file1")))
                 }
             ));
 
         assert_eq!(
-            process_1only_elem(b"cmd arg0 arg1 < file0 >> file1"),
-            process_1only_elem(b"cmd arg0 arg1 >> file1 < file0"));
-        assert_eq!(
-            process_1only_elem(b"cmd arg0 arg1 < file0 >> file1"),
-            process_1only_elem(b" cmd \t arg0 arg1 >> file1 < file0 \n"));
+            process_car(b"cmd arg0 arg1 < file0 >> file1"),
+            process_car(b" cmd \t arg0 arg1 < file0 >> file1\n"));
 
-        assert!(!process_1only_elem(b"< file0 cmd").is_done());
-        assert!(!process_1only_elem(b"> file0 cmd").is_done());
+        assert!(process_car(b"< file cmd").is_err());
+        assert!(process_car(b"> file cmd").is_err());
+        assert!(
+            if let Done(remained, _) = process_car(b"cmd > file0 < file1") {
+                let remained = String::from_utf8_lossy(remained);
+                remained == String::from("< file1")
+            } else {
+                false
+            });
     }
 
     #[test]
@@ -363,13 +322,11 @@ mod tests {
             Done(
                 empty!(),
                 Job {
-                    process_list: vec![
-                        Process {
-                            argument_list: string_vec!["cmd"],
-                            input: None,
-                            output: None,
-                        },
-                    ],
+                    process_list: Process {
+                        argument_list: string_vec!["cmd"],
+                        input: Input::Inherit,
+                        output: Output::Inherit,
+                    },
                     mode: JobMode::ForeGround,
                 }
             ));
@@ -378,13 +335,11 @@ mod tests {
             Done(
                 empty!(),
                 Job {
-                    process_list: vec![
-                        Process {
-                            argument_list: string_vec!["cmd"],
-                            input: Some(Input::Redirect(String::from("file0"))),
-                            output: Some(Output::Redirect(Truncate(String::from("file1")))),
-                        },
-                    ],
+                    process_list: Process {
+                        argument_list: string_vec!["cmd"],
+                        input: Input::Redirect(String::from("file0")),
+                        output: Output::Redirect(Truncate(String::from("file1"))),
+                    },
                     mode: JobMode::ForeGround,
                 }
             ));
@@ -393,18 +348,18 @@ mod tests {
             Done(
                 empty!(),
                 Job {
-                    process_list: vec![
+                    process_list: {
+                        let proc1 = Process {
+                            argument_list: string_vec!["cmd1"],
+                            input: Input::Pipe,
+                            output: Output::Inherit,
+                        };
                         Process {
                             argument_list: string_vec!["cmd0"],
-                            input: None,
-                            output: Some(Output::Pipe),
-                        },
-                        Process {
-                            argument_list: string_vec!["cmd1"],
-                            input: Some(Input::Pipe),
-                            output: None,
-                        },
-                    ],
+                            input: Input::Inherit,
+                            output: Output::Pipe(Box::new(proc1)),
+                        }
+                    },
                     mode: JobMode::ForeGround,
                 }
             ));
@@ -413,18 +368,18 @@ mod tests {
             Done(
                 empty!(),
                 Job {
-                    process_list: vec![
+                    process_list: {
+                        let proc1 = Process {
+                            argument_list: string_vec!["cmd1", "arg1"],
+                            input: Input::Pipe,
+                            output: Output::Redirect(Truncate(String::from("file1"))),
+                        };
                         Process {
                             argument_list: string_vec!["cmd0"],
-                            input: Some(Input::Redirect(String::from("file0"))),
-                            output: Some(Output::Pipe),
-                        },
-                        Process {
-                            argument_list: string_vec!["cmd1", "arg1"],
-                            input: Some(Input::Pipe),
-                            output: Some(Output::Redirect(Truncate(String::from("file1")))),
-                        },
-                    ],
+                            input: Input::Redirect(String::from("file0")),
+                            output: Output::Pipe(Box::new(proc1)),
+                        }
+                    },
                     mode: JobMode::ForeGround,
                 }
             ));
@@ -433,23 +388,23 @@ mod tests {
             Done(
                 empty!(),
                 Job {
-                    process_list: vec![
+                    process_list: {
+                        let proc2 = Process {
+                            argument_list: string_vec!["cmd2", "arg2", "arg3"],
+                            input: Input::Pipe,
+                            output: Output::Redirect(Append(String::from("file3"))),
+                        };
+                        let proc1 = Process {
+                            argument_list: string_vec!["cmd1", "arg1"],
+                            input: Input::Pipe,
+                            output: Output::Pipe(Box::new(proc2)),
+                        };
                         Process {
                             argument_list: string_vec!["cmd0"],
-                            input: Some(Input::Redirect(String::from("file0"))),
-                            output: Some(Output::Pipe),
-                        },
-                        Process {
-                            argument_list: string_vec!["cmd1", "arg1"],
-                            input: Some(Input::Pipe),
-                            output: Some(Output::Pipe),
-                        },
-                        Process {
-                            argument_list: string_vec!["cmd2", "arg2", "arg3"],
-                            input: Some(Input::Pipe),
-                            output: Some(Output::Redirect(Append(String::from("file3")))),
-                        },
-                    ],
+                            input: Input::Redirect(String::from("file0")),
+                            output: Output::Pipe(Box::new(proc1)),
+                        }
+                    },
                     mode: JobMode::BackGround,
                 }));
 
