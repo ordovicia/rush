@@ -30,7 +30,7 @@ use std::str::{self, FromStr};
 
 use nom::{self, multispace};
 
-use job::*;
+use job::{Job, JobMode, Process, OutputRedirection, WriteMode};
 
 pub(crate) fn parse_job(input: &[u8]) -> result::Result<Job, nom::IError<u32>> {
     job(input).to_full_result()

@@ -1,8 +1,7 @@
 use std::{process, fs};
 use std::os::unix::io::{FromRawFd, IntoRawFd};
 
-use errors::*;
-use parser;
+use errors::{Result, Error};
 
 #[derive(Debug, PartialEq)]
 pub struct Job {
@@ -11,18 +10,11 @@ pub struct Job {
 }
 
 impl Job {
-    pub fn from_input(input: &[u8]) -> Result<Self> {
-        parser::parse_job(input).map_err(|e| Error::from(e))
-    }
-
-    pub fn spawn(&self) -> Result<()> {
+    pub fn run(&self) -> Result<process::ExitStatus> {
         assert!(self.process_list.len() > 0);
 
         let mut child = Job::spawn_process(&self.process_list[0])?;
-        let status = child.wait().map_err(|e| Error::ExecuteError(e))?;
-        println!("child exited with status {}", status);
-
-        Ok(())
+        child.wait().map_err(|e| Error::from(e))
     }
 
     fn spawn_process(process: &Process) -> Result<process::Child> {
@@ -57,7 +49,7 @@ impl Job {
             .stdin(stdin)
             .stdout(stdout)
             .spawn()
-            .map_err(|e| Error::ExecuteError(e))
+            .map_err(|e| Error::from(e))
     }
 }
 
