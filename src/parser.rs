@@ -21,23 +21,19 @@
 //! proc_list   := proc_list_1
 //!              | proc_list_2
 //!
-//! job         := proc_list "&"? end_job
 //! end_job     := eof | ";" | "\n" | "\r"
+//! job         := proc_list "&"? end_job
 //! ```
 
+use std::result;
 use std::str::{self, FromStr};
 
-use nom::{IResult, multispace};
+use nom::{self, multispace};
 
-use errors::*;
 use job::*;
 
-pub(crate) fn parse_job(input: &[u8]) -> Result<(&[u8], Job)> {
-    match job(input) {
-        IResult::Done(remained, job) => Ok((remained, job)),
-        IResult::Error(e) => Err(Error::ParseError(ParseError::Error(e))),
-        IResult::Incomplete(e) => Err(Error::ParseError(ParseError::Incomplete(e))),
-    }
+pub(crate) fn parse_job(input: &[u8]) -> result::Result<Job, nom::IError<u32>> {
+    job(input).to_full_result()
 }
 
 named!(job<Job>,
@@ -348,10 +344,10 @@ mod tests {
     }
 
     #[test]
-    fn parse_job_test() {
+    fn job_test() {
         assert_eq!(
-            parse_job(b"cmd"),
-            Ok((str_ref!(EMPTY), Job {
+            job(b"cmd"),
+            Done(str_ref!(EMPTY), Job {
                 process_list: vec![
                     Process {
                         argument_list: string_vec!["cmd"],
@@ -360,10 +356,10 @@ mod tests {
                     },
                 ],
                 mode: JobMode::ForeGround,
-            })));
+            }));
         assert_eq!(
-            parse_job(b"cmd < file0 > file1"),
-            Ok((str_ref!(EMPTY), Job {
+            job(b"cmd < file0 > file1"),
+            Done(str_ref!(EMPTY), Job {
                 process_list: vec![
                     Process {
                         argument_list: string_vec!["cmd"],
@@ -376,10 +372,10 @@ mod tests {
                     },
                 ],
                 mode: JobMode::ForeGround,
-            })));
+            }));
         assert_eq!(
-            parse_job(b"cmd0 < file0 | cmd1 arg1 > file1"),
-            Ok((str_ref!(EMPTY), Job {
+            job(b"cmd0 < file0 | cmd1 arg1 > file1"),
+            Done(str_ref!(EMPTY), Job {
                 process_list: vec![
                     Process {
                         argument_list: string_vec!["cmd0"],
@@ -397,10 +393,10 @@ mod tests {
                     },
                 ],
                 mode: JobMode::ForeGround,
-            })));
+            }));
         assert_eq!(
-            parse_job(b"cmd0 < file0 | cmd1 arg1 | cmd2 arg2 arg3 >> file3 &"),
-            Ok((str_ref!(EMPTY), Job {
+            job(b"cmd0 < file0 | cmd1 arg1 | cmd2 arg2 arg3 >> file3 &"),
+            Done(str_ref!(EMPTY), Job {
                 process_list: vec![
                     Process {
                         argument_list: string_vec!["cmd0"],
@@ -423,14 +419,14 @@ mod tests {
                     },
                 ],
                 mode: JobMode::BackGround,
-            })));
+            }));
 
         assert_eq!(
-            parse_job(b"cmd0 < file0 | cmd1 arg1 | cmd2 arg2 arg3 >> file3 &"),
-            parse_job(b" cmd0 < file0 \t | cmd1 arg1 | cmd2 arg2 arg3 >> file3 & \n"));
+            job(b"cmd0 < file0 | cmd1 arg1 | cmd2 arg2 arg3 >> file3 &"),
+            job(b" cmd0 < file0 \t | cmd1 arg1 | cmd2 arg2 arg3 >> file3 & \n"));
 
         macro_rules! assert_err {
-            ($s: expr) => { assert!(parse_job($s).is_err()) }
+            ($s: expr) => { assert!(job($s).is_err()) }
         }
 
         assert_err!(b"| cmd");

@@ -11,8 +11,8 @@ pub struct Job {
 }
 
 impl Job {
-    pub fn from_input(input: &[u8]) -> Result<(&[u8], Self)> {
-        parser::parse_job(input)
+    pub fn from_input(input: &[u8]) -> Result<Self> {
+        parser::parse_job(input).map_err(|e| Error::from(e))
     }
 
     pub fn spawn(&self) -> Result<()> {
