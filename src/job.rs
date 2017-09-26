@@ -9,6 +9,20 @@ pub struct Job {
     pub(crate) mode: JobMode,
 }
 
+impl fmt::Display for Job {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{} {}",
+            self.process_list,
+            match self.mode {
+                JobMode::BackGround => "&",
+                _ => "",
+            }
+        )
+    }
+}
+
 impl Job {
     pub fn run(&self) -> Result<stdproc::ExitStatus> {
         let mut child = Job::spawn_process(&self.process_list)?;
@@ -65,11 +79,35 @@ pub(crate) enum JobMode {
 }
 
 pub(crate) mod process {
+    use super::fmt;
+
     #[derive(Debug, PartialEq)]
     pub(crate) struct Process {
         pub argument_list: Vec<String>,
         pub input: Input,
         pub output: Output,
+    }
+
+    impl fmt::Display for Process {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            use self::OutputRedirect::{Truncate, Append};
+
+            for arg in &self.argument_list {
+                write!(f, "{} ", arg).unwrap();
+            }
+            match self.input {
+                Input::Redirect(ref file_name) => write!(f, "< {} ", file_name).unwrap(),
+                _ => {}
+            }
+            match self.output {
+                Output::Redirect(Truncate(ref file_name)) => write!(f, "> {} ", file_name).unwrap(),
+                Output::Redirect(Append(ref file_name)) => write!(f, ">> {} ", file_name).unwrap(),
+                Output::Pipe(ref p) => write!(f, "| {}", p).unwrap(),
+                Output::Inherit => {}
+            }
+
+            Ok(())
+        }
     }
 
     #[derive(Debug, PartialEq)]
