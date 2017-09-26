@@ -1,8 +1,12 @@
 [package]
-authors = ["Hidehito Yabuuchi <hdht.ybuc@gmail.com>"]
 name = "rush"
 version = "0.1.0"
+authors = ["Hidehito Yabuuchi <hdht.ybuc@gmail.com>"]
 
 [dependencies]
 nom = "3.2.0"
 rustyline = "1.0.0"
+
+[[bin]]
+name = "rush"
+doc = false
