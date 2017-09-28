@@ -40,14 +40,14 @@ named!(job<Job>,
            bg: opt!(complete!(background)) >>
            opt!(complete!(multispace)) >>
            end_of_job >>
-           (Job {
-               process_list,
-               mode: if bg.is_some() {
-                        JobMode::BackGround
-                     } else {
-                         JobMode::ForeGround
-                     }
-            })
+           (Job::new(
+                   process_list,
+                   if bg.is_some() {
+                       JobMode::BackGround
+                   } else {
+                       JobMode::ForeGround
+                   }
+           ))
        ));
 
 named!(process_car<Process>,
@@ -55,32 +55,32 @@ named!(process_car<Process>,
 named!(process_car_cmd<Process>,
        do_parse!(
            argument_list: argument_list >>
-           (Process {
-               argument_list,
-               input: process::Input::Inherit,
-               output: process::Output::Inherit,
-           })
+           (Process::new(
+                   argument_list,
+                   process::Input::Inherit,
+                   process::Output::Inherit,
+           ))
        ));
 named!(process_car_out<Process>,
        do_parse!(
            argument_list: argument_list >>
            output: process_output >>
-           (Process {
-               argument_list,
-               input: process::Input::Inherit,
-               output,
-           })
+           (Process::new(
+                   argument_list,
+                   process::Input::Inherit,
+                   output,
+           ))
        ));
 named!(process_car_inout<Process>,
        do_parse!(
            argument_list: argument_list >>
            input: redirect_in >>
            output: opt!(complete!(process_output)) >>
-           (Process {
-               argument_list,
-               input,
-               output: output.unwrap_or(process::Output::Inherit),
-           })
+           (Process::new(
+                   argument_list,
+                   input,
+                   output.unwrap_or(process::Output::Inherit),
+           ))
        ));
 named!(process_output<process::Output>,
        alt!(pipe_process | redirect_out));
@@ -94,11 +94,11 @@ named!(process_cdr<Process>,
        do_parse!(
            argument_list: argument_list >>
            output: opt!(complete!(process_output)) >>
-           (Process {
-               argument_list,
-               input: process::Input::Pipe,
-               output: output.unwrap_or(process::Output::Inherit)
-           })
+           (Process::new(
+                   argument_list,
+                   process::Input::Pipe,
+                   output.unwrap_or(process::Output::Inherit)
+           ))
        ));
 
 named!(argument_list<Vec<String> >, ws!(many1!(token)));
@@ -214,16 +214,10 @@ mod tests {
 
         assert_eq!(
             redirect_in(b"< file_name"),
-            Done(
-                empty!(),
-                Redirect(String::from("file_name"))
-            ));
+            Done(empty!(), Redirect(String::from("file_name"))));
         assert_eq!(
             redirect_in(b" <file_name "),
-            Done(
-                empty!(),
-                Redirect(String::from("file_name"))
-            ));
+            Done(empty!(), Redirect(String::from("file_name"))));
     }
 
     #[test]
@@ -233,22 +227,13 @@ mod tests {
 
         assert_eq!(
             redirect_out(b"> file_name"),
-            Done(
-                empty!(),
-                Redirect(Truncate(String::from("file_name")))
-            ));
+            Done(empty!(), Redirect(Truncate(String::from("file_name")))));
         assert_eq!(
             redirect_out(b" >file_name "),
-            Done(
-                empty!(),
-                Redirect(Truncate(String::from("file_name")))
-            ));
+            Done(empty!(), Redirect(Truncate(String::from("file_name")))));
         assert_eq!(
             redirect_out(b">> file_name"),
-            Done(
-                empty!(),
-                Redirect(Append(String::from("file_name")))
-            ));
+            Done(empty!(), Redirect(Append(String::from("file_name")))));
     }
 
     #[test]
@@ -260,41 +245,41 @@ mod tests {
             process_car(b"cmd"),
             Done(
                 empty!(),
-                Process {
-                    argument_list: string_vec!["cmd"],
-                    input: Input::Inherit,
-                    output: Output::Inherit,
-                 }
+                Process::new(
+                    string_vec!["cmd"],
+                    Input::Inherit,
+                    Output::Inherit,
+                ),
             ));
         assert_eq!(
             process_car(b"cmd < file"),
             Done(
                 empty!(),
-                Process {
-                    argument_list: string_vec!["cmd"],
-                    input: Input::Redirect(String::from("file")),
-                    output: Output::Inherit,
-                }
+                Process::new(
+                    string_vec!["cmd"],
+                    Input::Redirect(String::from("file")),
+                    Output::Inherit,
+                ),
             ));
         assert_eq!(
             process_car(b"cmd > file"),
             Done(
                 empty!(),
-                Process {
-                    argument_list: string_vec!["cmd"],
-                    input: Input::Inherit,
-                    output: Output::Redirect(Truncate(String::from("file")))
-                },
+                Process::new(
+                    string_vec!["cmd"],
+                    Input::Inherit,
+                    Output::Redirect(Truncate(String::from("file")))
+                ),
             ));
         assert_eq!(
             process_car(b"cmd arg0 arg1 < file0 >> file1"),
             Done(
                 empty!(),
-                Process {
-                    argument_list: string_vec!["cmd", "arg0", "arg1"],
-                    input: Input::Redirect(String::from("file0")),
-                    output: Output::Redirect(Append(String::from("file1")))
-                }
+                Process::new(
+                    string_vec!["cmd", "arg0", "arg1"],
+                    Input::Redirect(String::from("file0")),
+                    Output::Redirect(Append(String::from("file1")))
+                ),
             ));
 
         assert_eq!(
@@ -321,92 +306,93 @@ mod tests {
             job(b"cmd"),
             Done(
                 empty!(),
-                Job {
-                    process_list: Process {
-                        argument_list: string_vec!["cmd"],
-                        input: Input::Inherit,
-                        output: Output::Inherit,
-                    },
-                    mode: JobMode::ForeGround,
-                }
+                Job::new(
+                    Process::new(
+                        string_vec!["cmd"],
+                        Input::Inherit,
+                        Output::Inherit,
+                    ),
+                    JobMode::ForeGround,
+                ),
             ));
         assert_eq!(
             job(b"cmd < file0 > file1"),
             Done(
                 empty!(),
-                Job {
-                    process_list: Process {
-                        argument_list: string_vec!["cmd"],
-                        input: Input::Redirect(String::from("file0")),
-                        output: Output::Redirect(Truncate(String::from("file1"))),
-                    },
-                    mode: JobMode::ForeGround,
-                }
+                Job::new(
+                    Process::new(
+                        string_vec!["cmd"],
+                        Input::Redirect(String::from("file0")),
+                        Output::Redirect(Truncate(String::from("file1"))),
+                    ),
+                    JobMode::ForeGround,
+                ),
             ));
         assert_eq!(
             job(b"cmd0 | cmd1"),
             Done(
                 empty!(),
-                Job {
-                    process_list: {
-                        let proc1 = Process {
-                            argument_list: string_vec!["cmd1"],
-                            input: Input::Pipe,
-                            output: Output::Inherit,
-                        };
-                        Process {
-                            argument_list: string_vec!["cmd0"],
-                            input: Input::Inherit,
-                            output: Output::Pipe(Box::new(proc1)),
-                        }
+                Job::new(
+                    {
+                        let proc1 = Process::new(
+                            string_vec!["cmd1"],
+                            Input::Pipe,
+                            Output::Inherit,
+                        );
+                        Process::new(
+                            string_vec!["cmd0"],
+                            Input::Inherit,
+                            Output::Pipe(Box::new(proc1)),
+                        )
                     },
-                    mode: JobMode::ForeGround,
-                }
+                    JobMode::ForeGround,
+                ),
             ));
         assert_eq!(
             job(b"cmd0 < file0 | cmd1 arg1 > file1"),
             Done(
                 empty!(),
-                Job {
-                    process_list: {
-                        let proc1 = Process {
-                            argument_list: string_vec!["cmd1", "arg1"],
-                            input: Input::Pipe,
-                            output: Output::Redirect(Truncate(String::from("file1"))),
-                        };
-                        Process {
-                            argument_list: string_vec!["cmd0"],
-                            input: Input::Redirect(String::from("file0")),
-                            output: Output::Pipe(Box::new(proc1)),
-                        }
+                Job::new(
+                    {
+                        let proc1 = Process::new(
+                            string_vec!["cmd1", "arg1"],
+                            Input::Pipe,
+                            Output::Redirect(Truncate(String::from("file1"))),
+                        );
+                        Process::new(
+                            string_vec!["cmd0"],
+                            Input::Redirect(String::from("file0")),
+                            Output::Pipe(Box::new(proc1)),
+                        )
                     },
-                    mode: JobMode::ForeGround,
-                }
+                    JobMode::ForeGround,
+                ),
             ));
         assert_eq!(
             job(b"cmd0 < file0 | cmd1 arg1 | cmd2 arg2 arg3 >> file3 &"),
             Done(
                 empty!(),
-                Job {
-                    process_list: {
-                        let proc2 = Process {
-                            argument_list: string_vec!["cmd2", "arg2", "arg3"],
-                            input: Input::Pipe,
-                            output: Output::Redirect(Append(String::from("file3"))),
-                        };
-                        let proc1 = Process {
-                            argument_list: string_vec!["cmd1", "arg1"],
-                            input: Input::Pipe,
-                            output: Output::Pipe(Box::new(proc2)),
-                        };
-                        Process {
-                            argument_list: string_vec!["cmd0"],
-                            input: Input::Redirect(String::from("file0")),
-                            output: Output::Pipe(Box::new(proc1)),
-                        }
+                Job::new(
+                    {
+                        let proc2 = Process::new(
+                            string_vec!["cmd2", "arg2", "arg3"],
+                            Input::Pipe,
+                            Output::Redirect(Append(String::from("file3"))),
+                        );
+                        let proc1 = Process::new(
+                            string_vec!["cmd1", "arg1"],
+                            Input::Pipe,
+                            Output::Pipe(Box::new(proc2)),
+                        );
+                        Process::new(
+                            string_vec!["cmd0"],
+                            Input::Redirect(String::from("file0")),
+                            Output::Pipe(Box::new(proc1)),
+                        )
                     },
-                    mode: JobMode::BackGround,
-                }));
+                    JobMode::BackGround,
+                ),
+            ));
 
         assert_eq!(
             job(b"cmd0 < file0 | cmd1 arg1 | cmd2 arg2 arg3 >> file3 &"),

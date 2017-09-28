@@ -3,10 +3,10 @@ use std::{result, io};
 use rustyline;
 use nom;
 
-pub type Result<T> = result::Result<T, Error>;
+pub(crate) type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug)]
-pub enum Error {
+pub(crate) enum Error {
     ReadError(rustyline::error::ReadlineError),
     Eof, // Ctrl-D
     Interrupted, // Ctrl-C

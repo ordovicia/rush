@@ -2,7 +2,10 @@
 extern crate nom;
 extern crate rustyline;
 
-pub mod reader;
+pub mod rush;
+pub use rush::Rush;
+
+mod reader;
 mod parser;
-pub mod job;
-pub mod errors;
+mod job;
+mod errors;
