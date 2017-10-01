@@ -7,11 +7,11 @@ pub(crate) type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug)]
 pub(crate) enum Error {
-    ReadError(rustyline::error::ReadlineError),
+    Read(rustyline::error::ReadlineError),
     Eof, // Ctrl-D
     Interrupted, // Ctrl-C
-    ParseError(nom::IError<u32>),
-    ExecuteError(io::Error),
+    Parse(nom::IError<u32>),
+    Exectute(io::Error),
 }
 
 impl From<rustyline::error::ReadlineError> for Error {
@@ -21,19 +21,19 @@ impl From<rustyline::error::ReadlineError> for Error {
         match e {
             Eof => Error::Eof,
             Interrupted => Error::Interrupted,
-            e => Error::ReadError(e),
+            e => Error::Read(e),
         }
     }
 }
 
 impl From<nom::IError> for Error {
     fn from(e: nom::IError) -> Self {
-        Error::ParseError(e)
+        Error::Parse(e)
     }
 }
 
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
-        Error::ExecuteError(e)
+        Error::Exectute(e)
     }
 }

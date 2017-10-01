@@ -7,6 +7,12 @@ pub struct Rush {
     reader: Reader,
 }
 
+impl Default for Rush {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Rush {
     pub fn new() -> Self {
         Self { reader: Reader::new() }
@@ -31,6 +37,6 @@ impl Rush {
 
     fn run(&mut self) -> Result<process::ExitStatus> {
         let job = self.reader.read_job()?;
-        job.run().map_err(|e| Error::from(e))
+        job.run().map_err(Error::from)
     }
 }

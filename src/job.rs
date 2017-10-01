@@ -115,7 +115,7 @@ pub(crate) mod process {
         fn spawn_rec(&self, stdin: stdproc::Stdio) -> io::Result<ChildList> {
             use self::OutputRedirect::{Truncate, Append};
 
-            assert!(self.argument_list.len() > 0);
+            assert!(!self.argument_list.is_empty());
 
             let (head, piped) = match self.output {
                 Output::Inherit => {
@@ -169,9 +169,8 @@ pub(crate) mod process {
             for arg in &self.argument_list {
                 write!(f, "{} ", arg).unwrap();
             }
-            match self.input {
-                Input::Redirect(ref file_name) => write!(f, "< {} ", file_name).unwrap(),
-                _ => {}
+            if let Input::Redirect(ref file_name) = self.input {
+                write!(f, "< {} ", file_name).unwrap()
             }
             match self.output {
                 Output::Redirect(Truncate(ref file_name)) => write!(f, "> {} ", file_name).unwrap(),

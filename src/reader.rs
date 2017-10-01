@@ -20,6 +20,6 @@ impl Reader {
         use parser;
 
         let line = self.rl.readline(self.prompt)?;
-        parser::parse_job(line.as_bytes()).map_err(|e| Error::from(e))
+        parser::parse_job(line.as_bytes()).map_err(Error::from)
     }
 }
