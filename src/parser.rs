@@ -30,7 +30,7 @@ use nom::{self, multispace};
 use job::{Job, JobMode};
 use job::process::{self, Process};
 
-pub(crate) fn parse_job(input: &[u8]) -> result::Result<Job, nom::IError<u32>> {
+pub(super) fn parse_job(input: &[u8]) -> result::Result<Job, nom::IError<u32>> {
     job(input).to_full_result()
 }
 

@@ -3,15 +3,22 @@ use std::{result, io};
 use rustyline;
 use nom;
 
-pub(crate) type Result<T> = result::Result<T, Error>;
+pub(super) type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug)]
-pub(crate) enum Error {
+pub(super) enum Error {
+    // Read
     Read(rustyline::error::ReadlineError),
     Eof, // Ctrl-D
     Interrupted, // Ctrl-C
+
+    // Parse
     Parse(nom::IError<u32>),
-    Exectute(io::Error),
+
+    // Execute
+    NotBuiltin,
+    BuiltinExec(String),
+    IO(io::Error),
 }
 
 impl From<rustyline::error::ReadlineError> for Error {
@@ -34,6 +41,6 @@ impl From<nom::IError> for Error {
 
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
-        Error::Exectute(e)
+        Error::IO(e)
     }
 }

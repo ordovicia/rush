@@ -1,14 +1,16 @@
-use std::{io, fmt};
+use std::fmt;
 use std::process as stdproc;
 
+use errors::{Result, Error};
+
 #[derive(Debug, PartialEq)]
-pub(crate) struct Job {
+pub(super) struct Job {
     process_list: process::Process,
     mode: JobMode,
 }
 
 #[derive(Debug, PartialEq)]
-pub(crate) enum JobMode {
+pub(super) enum JobMode {
     ForeGround,
     BackGround,
     #[allow(unused)]
@@ -16,11 +18,11 @@ pub(crate) enum JobMode {
 }
 
 impl Job {
-    pub(crate) fn new(process_list: process::Process, mode: JobMode) -> Self {
+    pub(super) fn new(process_list: process::Process, mode: JobMode) -> Self {
         Self { process_list, mode }
     }
 
-    pub(crate) fn run(&self) -> io::Result<stdproc::ExitStatus> {
+    pub(super) fn run(&self) -> Result<stdproc::ExitStatus> {
         let mut child = self.process_list.spawn()?;
         child.wait()
     }
@@ -40,10 +42,12 @@ impl fmt::Display for Job {
     }
 }
 
-pub(crate) mod process {
+pub(super) mod process {
     use std::fs;
     use std::os::unix::io::{FromRawFd, AsRawFd, IntoRawFd};
+    use std::os::unix::process::ExitStatusExt;
 
+    use builtin;
     use super::*;
 
     #[derive(Debug, PartialEq)]
@@ -54,18 +58,27 @@ pub(crate) mod process {
     }
 
     #[derive(Debug)]
+    enum Child {
+        External(stdproc::Child),
+        Builtin,
+    }
+
+    #[derive(Debug)]
     pub(super) struct ChildList {
-        head: stdproc::Child,
+        head: Child,
         piped: Option<Box<ChildList>>,
     }
 
     impl ChildList {
-        pub(super) fn wait(&mut self) -> io::Result<stdproc::ExitStatus> {
+        pub(super) fn wait(&mut self) -> Result<stdproc::ExitStatus> {
             if let Some(ref mut piped) = self.piped {
                 piped.wait()?;
             }
 
-            self.head.wait()
+            match self.head {
+                Child::External(ref mut child) => child.wait().map_err(Error::from),
+                Child::Builtin => Ok(stdproc::ExitStatus::from_raw(0)),
+            }
         }
     }
 
@@ -98,7 +111,7 @@ pub(crate) mod process {
             }
         }
 
-        pub(super) fn spawn(&self) -> io::Result<ChildList> {
+        pub(super) fn spawn(&self) -> Result<ChildList> {
             let stdin = match self.input {
                 Input::Inherit => stdproc::Stdio::inherit(),
                 Input::Redirect(ref file_name) => {
@@ -112,7 +125,7 @@ pub(crate) mod process {
             self.spawn_rec(stdin)
         }
 
-        fn spawn_rec(&self, stdin: stdproc::Stdio) -> io::Result<ChildList> {
+        fn spawn_rec(&self, stdin: stdproc::Stdio) -> Result<ChildList> {
             use self::OutputRedirect::{Truncate, Append};
 
             assert!(!self.argument_list.is_empty());
@@ -138,7 +151,14 @@ pub(crate) mod process {
                 Output::Pipe(ref piped) => {
                     let head = self.spawn_one(stdin, stdproc::Stdio::piped())?;
 
-                    let stdin = head.stdout.as_ref().unwrap().as_raw_fd();
+                    let stdin = match head {
+                        Child::External(ref head) => head.stdout.as_ref().unwrap().as_raw_fd(),
+                        Child::Builtin => {
+                            return Err(Error::BuiltinExec(
+                                String::from("Could not make pipe to builtin commands"),
+                            ));
+                        }
+                    };
                     let stdin = unsafe { stdproc::Stdio::from_raw_fd(stdin) };
 
                     let piped = piped.spawn_rec(stdin)?;
@@ -149,16 +169,20 @@ pub(crate) mod process {
             Ok(ChildList { head, piped })
         }
 
-        fn spawn_one(
-            &self,
-            stdin: stdproc::Stdio,
-            stdout: stdproc::Stdio,
-        ) -> io::Result<stdproc::Child> {
-            stdproc::Command::new(&self.argument_list[0])
-                .args(&self.argument_list[1..])
-                .stdin(stdin)
-                .stdout(stdout)
-                .spawn()
+        fn spawn_one(&self, stdin: stdproc::Stdio, stdout: stdproc::Stdio) -> Result<Child> {
+            match builtin::exec(&self.argument_list) {
+                Ok(()) => Ok(Child::Builtin),
+                Err(Error::NotBuiltin) => {
+                    stdproc::Command::new(&self.argument_list[0])
+                        .args(&self.argument_list[1..])
+                        .stdin(stdin)
+                        .stdout(stdout)
+                        .spawn()
+                        .map(Child::External)
+                        .map_err(Error::from)
+                }
+                Err(e) => Err(e),
+            }
         }
     }
 

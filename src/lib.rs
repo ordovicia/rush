@@ -8,4 +8,5 @@ pub use rush::Rush;
 mod reader;
 mod parser;
 mod job;
+mod builtin;
 mod errors;
