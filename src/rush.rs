@@ -1,4 +1,4 @@
-use std::process;
+use std::{fmt, process};
 
 use reader::Reader;
 use errors::{Result, Error};
@@ -21,6 +21,7 @@ impl Rush {
     pub fn repl(&mut self) {
         loop {
             match self.run() {
+                Ok(status) => println!("Exit with {}", status),
                 Err(Error::Eof) => {
                     println!("EOF");
                     break;
@@ -29,10 +30,15 @@ impl Rush {
                     println!("Interrupted");
                     break;
                 }
-                Ok(status) => println!("Exit with {}", status),
-                err => eprintln!("Error: {:?}", err),
+                Err(Error::IO(err)) => Self::display_error(err),
+                Err(Error::BuiltinExec(err)) => Self::display_error(err),
+                Err(err) => eprintln!("rush: {:?}", err),
             }
         }
+    }
+
+    fn display_error<E: fmt::Display>(err: E) {
+        eprintln!("rush: {}", err);
     }
 
     fn run(&mut self) -> Result<process::ExitStatus> {
