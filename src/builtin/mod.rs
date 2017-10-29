@@ -1,10 +1,10 @@
-use errors::{Result, Error};
+use errors::{Error, Result};
 
 pub(super) mod cd;
 
-pub(super) fn exec(argument_list: &[String]) -> Result<()> {
+pub(super) fn exec(argument_list: &[String]) -> Option<Result<()>> {
     match argument_list[0].as_ref() {
-        "cd" => cd::cd(argument_list),
-        _ => Err(Error::NotBuiltin),
+        "cd" => Some(cd::cd(argument_list)),
+        _ => None,
     }
 }

@@ -11,6 +11,6 @@ pub(super) fn cd(args: &[String]) -> Result<()> {
     };
 
     env::set_current_dir(&target).map_err(|_| {
-        Error::BuiltinExec(format!("cd: No such file or directory: {:?}", target))
+        Error::Builtin(format!("cd: No such file or directory: {:?}", target))
     })
 }

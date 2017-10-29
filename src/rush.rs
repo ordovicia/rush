@@ -1,37 +1,30 @@
+//! The Rush shell.
+
 use std::{fmt, process};
 
 use reader::Reader;
-use errors::{Result, Error};
+use errors::{Error, Result};
 
 pub struct Rush {
     reader: Reader,
 }
 
-impl Default for Rush {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Rush {
     pub fn new() -> Self {
-        Self { reader: Reader::new() }
+        Self {
+            reader: Reader::new(),
+        }
     }
 
+    /// Run read-eval-print loop.
+    /// The loop is broken when reaches to EOF, or when interrupted.
     pub fn repl(&mut self) {
         loop {
             match self.run() {
                 Ok(status) => println!("Exit with {}", status),
-                Err(Error::Eof) => {
-                    println!("EOF");
-                    break;
-                }
-                Err(Error::Interrupted) => {
-                    println!("Interrupted");
-                    break;
-                }
+                Err(Error::Eof) | Err(Error::Interrupted) => break,
                 Err(Error::IO(err)) => Self::display_error(err),
-                Err(Error::BuiltinExec(err)) => Self::display_error(err),
+                Err(Error::Builtin(err)) => Self::display_error(err),
                 Err(err) => eprintln!("rush: {:?}", err),
             }
         }

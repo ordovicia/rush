@@ -1,7 +1,9 @@
+//! Job and process structs.
+
 use std::fmt;
 use std::process as stdproc;
 
-use errors::{Result, Error};
+use errors::{Error, Result};
 
 #[derive(Debug, PartialEq)]
 pub(super) struct Job {
@@ -13,8 +15,7 @@ pub(super) struct Job {
 pub(super) enum JobMode {
     ForeGround,
     BackGround,
-    #[allow(unused)]
-    Suspended,
+    #[allow(unused)] Suspended,
 }
 
 impl Job {
@@ -44,7 +45,7 @@ impl fmt::Display for Job {
 
 pub(super) mod process {
     use std::fs;
-    use std::os::unix::io::{FromRawFd, AsRawFd, IntoRawFd};
+    use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
     use std::os::unix::process::ExitStatusExt;
 
     use builtin;
@@ -126,7 +127,7 @@ pub(super) mod process {
         }
 
         fn spawn_rec(&self, stdin: stdproc::Stdio) -> Result<ChildList> {
-            use self::OutputRedirect::{Truncate, Append};
+            use self::OutputRedirect::{Append, Truncate};
 
             assert!(!self.argument_list.is_empty());
 
@@ -154,7 +155,7 @@ pub(super) mod process {
                     let stdin = match head {
                         Child::External(ref head) => head.stdout.as_ref().unwrap().as_raw_fd(),
                         Child::Builtin => {
-                            return Err(Error::BuiltinExec(
+                            return Err(Error::Builtin(
                                 String::from("Could not make pipe to builtin commands"),
                             ));
                         }
@@ -171,24 +172,22 @@ pub(super) mod process {
 
         fn spawn_one(&self, stdin: stdproc::Stdio, stdout: stdproc::Stdio) -> Result<Child> {
             match builtin::exec(&self.argument_list) {
-                Ok(()) => Ok(Child::Builtin),
-                Err(Error::NotBuiltin) => {
-                    stdproc::Command::new(&self.argument_list[0])
-                        .args(&self.argument_list[1..])
-                        .stdin(stdin)
-                        .stdout(stdout)
-                        .spawn()
-                        .map(Child::External)
-                        .map_err(Error::from)
-                }
-                Err(e) => Err(e),
+                Some(Ok(())) => Ok(Child::Builtin),
+                Some(Err(e)) => Err(e),
+                None => stdproc::Command::new(&self.argument_list[0])
+                    .args(&self.argument_list[1..])
+                    .stdin(stdin)
+                    .stdout(stdout)
+                    .spawn()
+                    .map(Child::External)
+                    .map_err(Error::from),
             }
         }
     }
 
     impl fmt::Display for Process {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            use self::OutputRedirect::{Truncate, Append};
+            use self::OutputRedirect::{Append, Truncate};
 
             for arg in &self.argument_list {
                 write!(f, "{} ", arg).unwrap();

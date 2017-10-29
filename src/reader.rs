@@ -1,7 +1,9 @@
+//! Input handler.
+
 use rustyline;
 use job::Job;
 
-use errors::{Result, Error};
+use errors::{Error, Result};
 
 pub(super) struct Reader {
     rl: rustyline::Editor<()>,
@@ -16,6 +18,7 @@ impl Reader {
         }
     }
 
+    /// Read a line and parse to a job.
     pub(super) fn read_job(&mut self) -> Result<Job> {
         use parser;
 

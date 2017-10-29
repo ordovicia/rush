@@ -1,4 +1,4 @@
-use std::{result, io};
+use std::{io, result};
 
 use rustyline;
 use nom;
@@ -9,15 +9,14 @@ pub(super) type Result<T> = result::Result<T, Error>;
 pub(super) enum Error {
     // Read
     Read(rustyline::error::ReadlineError),
-    Eof, // Ctrl-D
+    Eof,         // Ctrl-D
     Interrupted, // Ctrl-C
 
     // Parse
     Parse(nom::IError<u32>),
 
     // Execute
-    NotBuiltin,
-    BuiltinExec(String),
+    Builtin(String),
     IO(io::Error),
 }
 

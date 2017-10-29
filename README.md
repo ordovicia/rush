@@ -9,8 +9,8 @@ Toy shell implemented in Rust.
     * Input: `command < file`
     * Truncate: `command > file`
     * Append: `command >> file`
-    * Composition of the above: `command < file >> file`
+    * Composition of the above: e.g. `command < file >> file`
 * Pipe: `command | command`
-    * Combination with redirections: `command < file | command | command > file`
+    * Combination with redirections: e.g. `command < file | command | command > file`
 * Built-in commands
     * `cd`
