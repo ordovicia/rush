@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Hidehito Yabuuchi <hdht.ybuc@gmail.com>"]
 
 [dependencies]
-nom = "3.2.0"
+nom = "3.2.1"
 rustyline = "1.0.0"
 
 [[bin]]
